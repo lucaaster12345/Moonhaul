@@ -75,7 +75,10 @@ export class TwitchChatProvider implements ChatProvider {
     const socket = new WebSocket(url);
     this.socket = socket;
     socket.on("open", () => this.log("info", "Twitch EventSub socket opened"));
-    socket.on("message", (data) => void this.onMessage(data.toString()));
+    socket.on("message", (data) => void this.onMessage(data.toString()).catch((error) => {
+      this.detail = "Message handling failed";
+      this.log("error", "Twitch message handling failed", { error: error instanceof Error ? error.message : String(error) });
+    }));
     socket.on("error", (error) => this.log("error", "Twitch EventSub socket error", { error: error.message }));
     socket.on("close", () => {
       this.connected = false;
@@ -116,6 +119,7 @@ export class TwitchChatProvider implements ChatProvider {
       timestamp: new Date(String(packet.metadata.message_timestamp)),
       badges: Array.isArray(event.badges) ? event.badges.map((badge: Record<string, unknown>) => String(badge.set_id)) : [],
     };
+    this.log("debug", "Twitch chat message received", { userId: message.userId, displayName: message.displayName, message: message.message.slice(0, 120) });
     await this.handler?.(message);
   }
 
@@ -132,8 +136,17 @@ export class TwitchChatProvider implements ChatProvider {
 
   private async validateToken(): Promise<void> {
     const response = await fetch("https://id.twitch.tv/oauth2/validate", { headers: { Authorization: `OAuth ${this.token}` } });
-    if (response.ok) return;
+    if (response.ok) {
+      const body = await response.json() as { client_id?: string; user_id?: string; scopes?: string[] };
+      if (body.client_id && body.client_id !== this.config.clientId) throw new Error("Twitch access token belongs to a different TWITCH_CLIENT_ID");
+      if (body.user_id && body.user_id !== this.config.botUserId) throw new Error(`Twitch access token belongs to user ${body.user_id}, but TWITCH_BOT_USER_ID is ${this.config.botUserId}`);
+      const scopes = new Set(body.scopes ?? []);
+      const missing = ["user:read:chat", "user:write:chat"].filter((scope) => !scopes.has(scope));
+      if (missing.length) throw new Error(`Twitch access token is missing chat scope(s): ${missing.join(", ")}`);
+      return;
+    }
     if (!await this.refreshAccessToken()) throw new Error("Twitch user access token is invalid and could not be refreshed");
+    await this.validateToken();
   }
 
   private async refreshAccessToken(): Promise<boolean> {

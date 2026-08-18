@@ -23,6 +23,7 @@ The MVP is deliberately light: one Node.js service, one SQLite database, a React
 - Four stations: Winch, Boiler, Cooling, and Signal Room.
 - Fifteen data-driven events, timed command windows, unique-player thresholds, weighted voting, prerequisites, cooldowns, failures, rewards, follow-up metadata, and catastrophic recovery.
 - A 1280×720 Twitch/OBS overlay with a paused-shift telemetry screen.
+- Accepted Twitch commands receive a threaded chat confirmation and a short-lived overlay confirmation; rejected commands are surfaced on the overlay.
 - Authenticated admin UI with live controls, state/config/event editors, worker administration, mock chat, load bots, chaos buttons, audit history, snapshots, and protected two-stage wipe.
 - Current Twitch EventSub WebSocket input, Twitch Chat API output, and automatic incident-aware channel titles behind a provider adapter.
 - Docker deployment and an optional no-GPU stream worker using Xvfb, Chromium software rendering, FFmpeg, and `libx264`.

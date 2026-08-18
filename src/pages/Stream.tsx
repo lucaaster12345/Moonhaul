@@ -46,8 +46,11 @@ export function StreamPage() {
   if (state.paused) return <PausedStream data={data}/>;
   const remaining = state.activeEvent ? Math.max(0, Math.ceil((new Date(state.activeEvent.endsAt).getTime() - Date.now()) / 1000)) : 0;
   const mainCommand = activeEvent?.choices[0]?.command ?? "haul";
+  const latestCommand = state.recentActions.find((item) => item.kind === "command-accepted" || item.kind === "command-rejected");
+  const commandFresh = latestCommand ? Date.now() - new Date(latestCommand.at).getTime() < 8_000 : false;
   return <main className={`stream-root ${state.currentAlert ? "stream-alert" : ""}`}>
     <header><div className="brand">MOONHAUL <small>CELESTIAL INFRASTRUCTURE DIVISION</small></div><div className="stream-shift">SHIFT {state.world.currentShift} <b>•</b> ALT {fmt(state.moon.altitude, 1)} KM</div></header>
+    {latestCommand && commandFresh && <div className={`stream-command-confirmation ${latestCommand.kind === "command-rejected" ? "rejected" : ""}`} role="status"><small>{latestCommand.kind === "command-rejected" ? "COMMAND REJECTED" : "COMMAND ACCEPTED"}</small><b>{latestCommand.text.replace(/^COMMAND (ACCEPTED|REJECTED) · /, "")}</b></div>}
     <section className="stream-stage"><MachineVisual state={state} minimal/><div className="stream-readout"><span>LUNAR VELOCITY</span><b className={state.moon.velocity < 0 ? "danger" : ""}>{state.moon.velocity < 0 ? "▼" : "▲"} {Math.abs(state.moon.velocity).toFixed(3)} M/S</b></div></section>
     <section className="stream-order">
       <div className="stream-order-copy"><small>{activeEvent ? `${activeEvent.rarity.toUpperCase()} ORDER` : "STANDING ORDER"}</small><h1>{activeEvent?.name ?? "HAUL THE MOON"}</h1><p>{activeEvent?.description ?? "Winch III is accepting authorized labor."}</p></div>

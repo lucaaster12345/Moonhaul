@@ -136,12 +136,26 @@ export class MoonhaulService {
       }
       this.database.applyAction(player, result.command, result.contribution ?? 0, result.staminaCost ?? 0, message.timestamp);
     } else this.database.savePlayer(player);
-    if (result.accepted && ["help", "status", "join"].includes(result.command ?? "")) {
-      try { await this.provider.send(result.response, message.id); } catch (error) { this.recordError(error); }
+    const rawMessage = message.message.trim();
+    if (rawMessage.startsWith("!")) {
+      const command = result.command ?? rawMessage.slice(1).split(/\s+/)[0]?.toLowerCase() ?? "command";
+      this.recordCommandFeedback(message, command, result.accepted, result.response);
+      if (result.accepted) {
+        try { await this.provider.send(`@${message.displayName} COMMAND ACCEPTED: !${command}. ${result.response}`, message.id); } catch (error) { this.recordError(error); }
+      }
     }
     this.flushEngine(true);
     this.broadcast();
     return { accepted: result.accepted, response: result.response };
+  }
+
+  private recordCommandFeedback(message: NormalizedChatMessage, command: string, accepted: boolean, response: string): void {
+    const prefix = accepted ? "COMMAND ACCEPTED" : "COMMAND REJECTED";
+    const text = accepted
+      ? `${prefix} · ${message.displayName} used !${command}.`
+      : `${prefix} · !${command}: ${response}`;
+    this.engine.state.recentActions.unshift({ at: message.timestamp.toISOString(), kind: accepted ? "command-accepted" : "command-rejected", text, userId: message.userId });
+    this.engine.state.recentActions.splice(30);
   }
 
   snapshot(reason: string): { filename: string; size: number } {
