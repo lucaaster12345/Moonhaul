@@ -19,6 +19,7 @@ const config = defaultConfig();
 config["events.minimum_interval"] = 180;
 config["events.maximum_interval"] = 600;
 const engine = new GameEngine(freshWorld(started), config, seed);
+engine.setCrewSize(playerCount);
 const players: Player[] = Array.from({ length: playerCount }, (_, index) => ({
   id: `sim-${index + 1}`, displayName: `SimWorker_${index + 1}`, firstSeenAt: started.toISOString(), lastSeenAt: started.toISOString(), totalActions: 0, totalContribution: 0, xp: 0, level: 1,
   department: "winch", stamina: 100, staminaUpdatedAt: started.toISOString(), currency: 0, injuries: [], commendations: [], titles: ["Trainee"], activeTitle: "Trainee", inventory: {}, statistics: {}, moonDistance: 0,

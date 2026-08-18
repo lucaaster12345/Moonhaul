@@ -19,7 +19,12 @@ export class AdminAuth {
     const token = `${id}.${signature}`;
     const session = { username: this.env.ADMIN_USERNAME, csrf: randomBytes(24).toString("hex"), expiresAt: Date.now() + 12 * 3600_000 };
     this.sessions.set(id, session);
-    reply.setCookie("moonhaul_admin", token, { path: "/", httpOnly: true, sameSite: "strict", secure: this.env.NODE_ENV === "production", maxAge: 12 * 3600 });
+    // The VPS is commonly reached over plain HTTP during setup. A Secure cookie
+    // would be silently discarded in that case, making the admin page loop on
+    // "Loading machine paperwork" after a successful login. PUBLIC_BASE_URL is
+    // the explicit switch for HTTPS deployments.
+    const secure = this.env.PUBLIC_BASE_URL.toLowerCase().startsWith("https://");
+    reply.setCookie("moonhaul_admin", token, { path: "/", httpOnly: true, sameSite: "strict", secure, maxAge: 12 * 3600 });
     return session;
   }
 

@@ -28,6 +28,8 @@ export class MoonhaulService {
   private lastBackupAt = Date.now();
   private lastStreamTitle: string | null = null;
   private titleUpdateQueue: Promise<void> = Promise.resolve();
+  private broadcastTimer: NodeJS.Timeout | null = null;
+  private readonly commandFeedbackAt = new Map<string, number>();
   private readonly subscribers = new Set<(payload: string) => void>();
   private readonly botRng: SeededRandom;
 
@@ -37,6 +39,7 @@ export class MoonhaulService {
     const savedWorld = this.database.loadWorld();
     savedWorld.pausedAt ??= savedWorld.paused ? savedWorld.lastTickAt : null;
     this.engine = new GameEngine(savedWorld, this.database.loadConfig(), env.RANDOM_SEED);
+    this.syncCrewSize();
     for (const row of this.database.eventSettings()) this.engine.setEventTuning(String(row.event_id), { enabled: Boolean(row.enabled), weight: Number(row.weight), cooldownSeconds: Number(row.cooldown_seconds), ...(row.last_triggered_at ? { lastTriggeredAt: String(row.last_triggered_at) } : {}) });
     this.provider = env.CHAT_PROVIDER === "twitch"
       ? new TwitchChatProvider({ clientId: env.TWITCH_CLIENT_ID, clientSecret: env.TWITCH_CLIENT_SECRET, broadcasterId: env.TWITCH_BROADCASTER_ID, botUserId: env.TWITCH_BOT_USER_ID, accessToken: env.TWITCH_ACCESS_TOKEN, refreshToken: env.TWITCH_REFRESH_TOKEN, broadcastAccessToken: env.TWITCH_BROADCAST_ACCESS_TOKEN, broadcastRefreshToken: env.TWITCH_BROADCAST_REFRESH_TOKEN }, log)
@@ -45,6 +48,7 @@ export class MoonhaulService {
 
   async start(): Promise<void> {
     const now = new Date();
+    this.syncCrewSize();
     const offlineMs = now.getTime() - new Date(this.engine.state.lastTickAt).getTime();
     if (offlineMs > 2000) this.engine.applyOfflineProgress(offlineMs, now);
     this.flushEngine();
@@ -57,6 +61,8 @@ export class MoonhaulService {
   async stop(): Promise<void> {
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.botTimer) clearInterval(this.botTimer);
+    if (this.broadcastTimer) clearTimeout(this.broadcastTimer);
+    this.broadcastTimer = null;
     await this.titleUpdateQueue;
     await this.provider.stop();
     this.flushEngine(true);
@@ -101,6 +107,7 @@ export class MoonhaulService {
   }
 
   runSingleTick(now = new Date()): number {
+    this.syncCrewSize();
     const state = this.engine.state;
     const wasPaused = state.paused;
     const pausedAt = state.pausedAt;
@@ -115,6 +122,7 @@ export class MoonhaulService {
   }
 
   tick(elapsedMs: number, now = new Date()): void {
+    this.syncCrewSize();
     this.engine.tick(elapsedMs, now);
     this.flushEngine(now.getTime() - this.lastPersistAt >= 5000);
     this.broadcast();
@@ -127,6 +135,7 @@ export class MoonhaulService {
     if (this.database.isProcessed(message.id)) return { accepted: false, response: "Duplicate message ignored." };
     this.database.markProcessed(message.id, message.timestamp);
     const player = this.database.getOrCreatePlayer(message.userId, message.displayName, message.timestamp);
+    this.syncCrewSize();
     const result = this.engine.handlePlayerAction({ player, message: message.message, now: message.timestamp, recentContribution: this.database.recentContribution(player.id, message.timestamp) });
     if (result.accepted && result.command && (result.contribution ?? 0) > 0) {
       if (result.department) player.department = result.department;
@@ -140,8 +149,14 @@ export class MoonhaulService {
     if (rawMessage.startsWith("!")) {
       const command = result.command ?? rawMessage.slice(1).split(/\s+/)[0]?.toLowerCase() ?? "command";
       this.recordCommandFeedback(message, command, result.accepted, result.response);
-      if (result.accepted) {
-        try { await this.provider.send(`@${message.displayName} COMMAND ACCEPTED: !${command}. ${result.response}`, message.id); } catch (error) { this.recordError(error); }
+      const now = Date.now();
+      const lastFeedback = this.commandFeedbackAt.get(message.userId) ?? 0;
+      const feedbackCooldownMs = Math.max(0, Number(this.engine.getConfig()["player.command_cooldown_seconds"]) * 1000);
+      const shouldSend = now - lastFeedback >= feedbackCooldownMs;
+      if (shouldSend) {
+        this.commandFeedbackAt.set(message.userId, now);
+        const status = result.accepted ? "COMMAND ACCEPTED" : "COMMAND REJECTED";
+        try { await this.provider.send(`@${message.displayName} ${status}: !${command}. ${result.response}`, message.id); } catch (error) { this.recordError(error); }
       }
     }
     this.flushEngine(true);
@@ -168,6 +183,7 @@ export class MoonhaulService {
   }
 
   triggerEvent(id: string, now = new Date()): boolean {
+    this.syncCrewSize();
     if (!this.engine.triggerEvent(id, now)) return false;
     this.flushEngine(true);
     this.broadcast();
@@ -190,6 +206,7 @@ export class MoonhaulService {
     const snapshot = this.snapshot("automatic-pre-wipe");
     this.database.wipe();
     this.engine = new GameEngine(this.database.loadWorld(), this.database.loadConfig(), this.env.RANDOM_SEED);
+    this.syncCrewSize();
     this.database.audit("wipe-all-game-data", { snapshot: snapshot.filename }, { fresh: true }, ip);
     this.restartTickTimer();
     this.broadcast();
@@ -199,6 +216,7 @@ export class MoonhaulService {
 
   setBots(count: number): void {
     this.botCount = Math.max(0, Math.min(500, Math.floor(count)));
+    this.syncCrewSize();
     if (this.botTimer) clearInterval(this.botTimer);
     this.botTimer = null;
     if (!this.botCount || !(this.provider instanceof MockChatProvider)) return;
@@ -235,9 +253,10 @@ export class MoonhaulService {
 
   publicState(): Record<string, unknown> {
     const active = this.engine.state.activeEvent ? eventById(this.engine.state.activeEvent.id) : null;
+    const scaledActive = active ? { ...active, thresholdUnique: this.engine.requiredParticipants(active) } : null;
     return {
       state: this.engine.state,
-      activeEvent: active,
+      activeEvent: scaledActive,
       scars: this.database.scars().slice(0, 5),
       playerCount: this.database.counts().workers,
       chat: this.provider.status(),
@@ -268,9 +287,16 @@ export class MoonhaulService {
   }
 
   private broadcast(): void {
-    if (!this.subscribers.size) return;
-    const payload = JSON.stringify(this.publicState());
-    for (const callback of this.subscribers) callback(payload);
+    if (!this.subscribers.size || this.broadcastTimer) return;
+    // Chat can deliver many messages in the same moment. Coalesce those state
+    // changes so a browser source always receives the latest snapshot instead
+    // of building an unbounded render queue.
+    this.broadcastTimer = setTimeout(() => {
+      this.broadcastTimer = null;
+      if (!this.subscribers.size) return;
+      const payload = JSON.stringify(this.publicState());
+      for (const callback of this.subscribers) callback(payload);
+    }, 100);
   }
 
   private syncStreamTitle(force = false): Promise<void> {
@@ -305,5 +331,9 @@ export class MoonhaulService {
     this.errors.unshift({ at: new Date().toISOString(), message });
     this.errors.splice(20);
     this.log("error", message);
+  }
+
+  private syncCrewSize(): void {
+    this.engine.setCrewSize(this.database.counts().workers + this.botCount);
   }
 }

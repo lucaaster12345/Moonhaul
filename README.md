@@ -19,9 +19,9 @@ The MVP is deliberately light: one Node.js service, one SQLite database, a React
 - Continuous 1-second simulation with bounded offline progression and a skeleton-crew autopilot.
 - Persistent Moon, machine, resources, shifts, workers, contribution history, scars, event history, configuration, processed message IDs, audit logs, and snapshot metadata.
 - A pure, seeded game engine that runs without Twitch, HTTP, React, or a database.
-- Whitelisted commands, stamina, per-player cooldowns, veteran bonuses capped at 50%, duplicate-message protection, message limits, and a short-window contribution cap.
+- Whitelisted commands, a configurable five-second chat-command cooldown, stamina, veteran bonuses capped at 50%, duplicate-message protection, message limits, and a short-window contribution cap.
 - Four stations: Winch, Boiler, Cooling, and Signal Room.
-- Fifteen data-driven events, timed command windows, unique-player thresholds, weighted voting, prerequisites, cooldowns, failures, rewards, follow-up metadata, and catastrophic recovery.
+- Fifteen data-driven events, timed command windows, incident-only commands, unique-player thresholds, weighted voting, prerequisites, cooldowns, failures, rewards, follow-up metadata, and catastrophic recovery.
 - A 1280×720 Twitch/OBS overlay with a paused-shift telemetry screen.
 - Accepted Twitch commands receive a threaded chat confirmation and a short-lived overlay confirmation; rejected commands are surfaced on the overlay.
 - Authenticated admin UI with live controls, state/config/event editors, worker administration, mock chat, load bots, chaos buttons, audit history, snapshots, and protected two-stage wipe.
@@ -90,7 +90,7 @@ display name: RatKing
 message:      !haul
 ```
 
-The command passes through the same normalization, duplicate checking, command parsing, stamina, cooldown, game-engine, persistence, and live-update pipeline used by Twitch. The same panel can spawn up to 500 simulated workers; they choose normal work commands or active-event choices.
+The command passes through the same normalization, duplicate checking, command parsing, stamina, cooldown, game-engine, persistence, and live-update pipeline used by Twitch. The same panel can spawn up to 500 simulated workers; they choose normal work commands or active-event choices. Incident staffing scales to the registered crew, so a one- or two-person channel can resolve an event without needing an impossible crowd.
 
 ## Twitch integration
 
@@ -99,14 +99,14 @@ Set `CHAT_PROVIDER=twitch` and fill the Twitch variables in `.env`. MOONHAUL rec
 ## Commands
 
 ```text
-General: !join !status !help !work
+Core:    !join !status !help !haul !work
 Winch:   !haul !brace !release !grease
 Boiler:  !stoke !shovel !dampen
 Cooling: !vent !cool !flush
 Signal:  !tune !listen !signal
 ```
 
-Event commands are recognized only while their event is active. `!help boiler`, `!help cooling`, `!help winch`, and `!help signal` return focused help.
+The core commands are enough to participate; specialist commands are optional. Event commands are recognized only while their event is active. `!help boiler`, `!help cooling`, `!help winch`, and `!help signal` return focused help.
 
 ## Admin panel
 
@@ -151,7 +151,7 @@ To restore:
 
 ## Configuration
 
-Balance numbers live in `CONFIG_DEFINITIONS` and are stored in `game_config`. The admin editor includes type, description, current/default value, and numeric limits. Important categories include simulation, Moon, Winch, Boiler, Cooling, player, events, autopilot, and backups.
+Balance numbers live in `CONFIG_DEFINITIONS` and are stored in `game_config`. The admin editor includes type, description, current/default value, and numeric limits. Important categories include simulation, Moon, Winch, Boiler, Cooling, player, events, autopilot, and backups. The default `player.command_cooldown_seconds` is five seconds and applies to work and incident commands; utility commands (`!join`, `!status`, and `!help`) remain available for crew information. Incident-only commands are rejected outside their active event and explain why in chat and the overlay.
 
 Environment variables are reserved for secrets and process/deployment settings. They are never exposed in the gameplay editor.
 

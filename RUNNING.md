@@ -54,6 +54,8 @@ docker compose ps
 docker compose logs -f moonhaul
 ```
 
+For a direct HTTP VPS setup, keep `PUBLIC_BASE_URL` as `http://YOUR_VPS_IP:3000`; use an `https://` URL only after putting the admin console behind TLS. The player configuration editor includes `player.command_cooldown_seconds` (5 by default).
+
 Stop, start, and restart:
 
 ```bash

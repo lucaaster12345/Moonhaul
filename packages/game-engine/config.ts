@@ -15,6 +15,7 @@ export const CONFIG_DEFINITIONS: ConfigDefinition[] = [
   { key: "player.max_stamina", category: "player", description: "Base maximum worker stamina.", type: "number", defaultValue: 100, min: 10, max: 1000 },
   { key: "player.stamina_regen", category: "player", description: "Stamina restored per second.", type: "number", defaultValue: 0.45, min: 0, max: 100 },
   { key: "player.action_cooldown_ms", category: "player", description: "Minimum time between useful actions.", type: "number", defaultValue: 1800, min: 0, max: 60000 },
+  { key: "player.command_cooldown_seconds", category: "player", description: "Minimum time between gameplay chat commands (seconds).", type: "number", defaultValue: 5, min: 0, max: 60 },
   { key: "player.haul_stamina_cost", category: "player", description: "Stamina cost of !haul.", type: "number", defaultValue: 10, min: 0, max: 100 },
   { key: "player.base_action_power", category: "player", description: "Base multiplier for all workers.", type: "number", defaultValue: 1, min: 0.1, max: 10 },
   { key: "player.max_level_bonus", category: "player", description: "Maximum veteran effectiveness bonus.", type: "number", defaultValue: 0.5, min: 0, max: 1 },

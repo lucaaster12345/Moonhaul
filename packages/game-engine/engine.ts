@@ -38,6 +38,8 @@ export class GameEngine {
   private readonly pendingHistory: EngineHistoryEntry[] = [];
   private readonly eventTuning = new Map<string, { enabled: boolean; weight: number; cooldownSeconds: number; lastTriggeredAt?: string }>();
   private readonly actionBursts = new Map<string, { count: number; at: number }>();
+  private readonly commandCooldowns = new Map<string, number>();
+  private crewSize = 2;
 
   constructor(state: WorldState, config: GameConfig = defaultConfig(), seed = Date.now()) {
     this.state = structuredClone(state);
@@ -61,6 +63,17 @@ export class GameEngine {
 
   getEventTuning(): Record<string, { enabled: boolean; weight: number; cooldownSeconds: number; lastTriggeredAt?: string }> {
     return Object.fromEntries(this.eventTuning);
+  }
+
+  setCrewSize(count: number): void {
+    this.crewSize = Math.max(1, Math.floor(Number.isFinite(count) ? count : 1));
+  }
+
+  requiredParticipants(event: EventDefinition): number {
+    // Incidents should ask a small active crew for meaningful participation,
+    // without making the original large-channel thresholds impossible for a
+    // one- or two-person night shift.
+    return Math.max(1, Math.min(event.thresholdUnique, Math.ceil(this.crewSize * 0.75)));
   }
 
   tick(elapsedMs: number, now = new Date(), allowRandomEvents = true): void {
@@ -140,19 +153,24 @@ export class GameEngine {
     const [head, ...args] = raw.slice(1).toLowerCase().split(/\s+/);
     const command = head ?? "";
     const player = input.player;
-    if (player.disabledUntil && new Date(player.disabledUntil) > now) return { accepted: false, response: "Worker access is temporarily suspended." };
+    const utilityCommand = command === "join" || command === "status" || command === "help";
+    if (!utilityCommand) {
+      if (!this.commandCooldownReady(player.id, now)) return { accepted: false, response: "Command cooling down. Please wait a few seconds.", command };
+      this.commandCooldowns.set(player.id, now.getTime());
+    }
+    if (player.disabledUntil && new Date(player.disabledUntil) > now) return { accepted: false, response: "Worker access is temporarily suspended.", command };
 
     if (command === "join") return { accepted: true, response: `${player.displayName} clocked in as ${player.activeTitle}.`, command };
     if (command === "status") return { accepted: true, response: `${player.displayName}: level ${player.level}, ${Math.floor(player.stamina)} stamina, ${Math.round(player.totalContribution)} contribution.`, command };
     if (command === "help") return { accepted: true, response: this.helpText(args[0]), command };
-    if (this.state.paused) return { accepted: false, response: "Night shift paused by supervisor. Work commands are on hold." };
+    if (this.state.paused) return { accepted: false, response: "Night shift paused by supervisor. Work commands are on hold.", command };
 
     const activeEvent = this.state.activeEvent ? eventById(this.state.activeEvent.id) : undefined;
     const eventChoice = activeEvent?.choices.find((choice) => choice.command === command);
     if (eventChoice && activeEvent && this.state.activeEvent) {
       const staminaCost = 8;
-      if (player.stamina < staminaCost) return { accepted: false, response: "Insufficient stamina. The Moon recommends a short break." };
-      if (!this.cooldownReady(player, now)) return { accepted: false, response: "Action cooling down." };
+      if (player.stamina < staminaCost) return { accepted: false, response: "Insufficient stamina. The Moon recommends a short break.", command };
+      if (!this.cooldownReady(player, now)) return { accepted: false, response: "Action cooling down.", command };
       const power = this.playerPower(player);
       const vote = this.state.activeEvent.votes[command] ?? { count: 0, power: 0, users: [] };
       vote.count += 1;
@@ -164,8 +182,13 @@ export class GameEngine {
     }
 
     const definition = this.commands()[command];
-    if (!definition) return { accepted: false, response: "Unknown command. Use !help for approved work." };
-    if (!this.cooldownReady(player, now)) return { accepted: false, response: "Action cooling down." };
+    const isEventCommand = EVENTS.some((event) => event.choices.some((choice) => choice.command === command));
+    const eventOnlyCommand = isEventCommand && !definition;
+    if (eventOnlyCommand && !activeEvent) return { accepted: false, response: `!${command} is disabled until an active incident calls for it.`, command };
+    if (eventOnlyCommand && activeEvent) return { accepted: false, response: `!${command} is not part of the current incident.`, command };
+    if (!definition) return { accepted: false, response: "Unknown command. Use !help for approved work.", command };
+    if (activeEvent?.pausesNormalWork) return { accepted: false, response: `Normal work is suspended during ${activeEvent.name}. Use one of the incident commands shown on stream.`, command };
+    if (!this.cooldownReady(player, now)) return { accepted: false, response: "Action cooling down.", command };
     if (player.stamina < definition.stamina) return { accepted: false, response: "Insufficient stamina. Please loiter responsibly." };
     if ((input.recentContribution ?? 0) >= this.number("player.window_contribution_cap")) return { accepted: false, response: "Short-window contribution limit reached." };
 
@@ -236,19 +259,21 @@ export class GameEngine {
       .sort((a, b) => b.vote.power + b.vote.users.length * 2 - (a.vote.power + a.vote.users.length * 2));
     const winner = ranked[0];
     let outcome = "failed";
-    if (winner && unique >= event.thresholdUnique && winner.vote.count > 0) {
+    const requiredParticipants = this.requiredParticipants(event);
+    if (winner && unique >= requiredParticipants && winner.vote.count > 0) {
       for (const item of winner.choice.effects) this.applyEffect(item, event, now);
       outcome = winner.choice.command;
       this.addFeed("resolution", `${event.name}: ${winner.choice.label}. ${event.rewards}`, now);
     } else {
-      const damage = event.rarity === "catastrophic" ? 18 : event.rarity === "rare" ? 9 : 4;
+      const baseDamage = event.rarity === "catastrophic" ? 18 : event.rarity === "rare" ? 9 : 4;
+      const damage = this.crewSize <= 2 ? baseDamage * 0.65 : baseDamage;
       this.state.machine.integrity -= damage;
       const defendedAltitude = this.bool("autopilot.enabled") ? this.number("autopilot.minimum_altitude") - 2 : 0;
       this.state.moon.altitude = Math.max(defendedAltitude, this.state.moon.altitude - damage * 0.15);
       this.state.world.morale -= 3;
       this.addFeed("failure", `${event.name} received insufficient staffing. ${event.penalties}`, now);
     }
-    this.pendingHistory.push({ eventId: event.id, eventName: event.name, outcome, details: { uniqueParticipants: unique, votes: active.votes }, occurredAt: now.toISOString(), severity: event.rarity });
+    this.pendingHistory.push({ eventId: event.id, eventName: event.name, outcome, details: { uniqueParticipants: unique, requiredParticipants, votes: active.votes }, occurredAt: now.toISOString(), severity: event.rarity });
     this.state.activeEvent = null;
     this.state.currentAlert = null;
     this.state.moon.secondMoon = false;
@@ -299,6 +324,11 @@ export class GameEngine {
     if (department === "signal") this.state.machine.efficiency += 1.5 * power;
   }
 
+  private commandCooldownReady(playerId: string, now: Date): boolean {
+    const last = this.commandCooldowns.get(playerId);
+    return last === undefined || now.getTime() - last >= this.number("player.command_cooldown_seconds") * 1000;
+  }
+
   private cooldownReady(player: Player, now: Date): boolean {
     return !player.lastActionAt || now.getTime() - new Date(player.lastActionAt).getTime() >= this.number("player.action_cooldown_ms");
   }
@@ -315,7 +345,9 @@ export class GameEngine {
       cooling: "Cooling: !vent, !cool, !flush.",
       signal: "Signal Room: !tune, !listen, !signal.",
     };
-    return department && sections[department] ? sections[department] : "Clock in with !join. Useful basics: !haul, !stoke, !cool, !tune, !work. Follow active orders on stream.";
+    return department && sections[department]
+      ? sections[department]
+      : "Core: !join, !status, !haul, and !work. Follow the incident order on stream; use !help <department> for optional specialist actions.";
   }
 
   private prerequisitesMet(event: EventDefinition): boolean {

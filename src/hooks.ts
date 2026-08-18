@@ -19,11 +19,20 @@ export function useLiveState(): { data: PublicSnapshot | null; connected: boolea
   const [error, setError] = useState("");
   useEffect(() => {
     let alive = true;
-    void api<PublicSnapshot>("/api/state").then((value) => alive && setData(value)).catch((reason: Error) => alive && setError(reason.message));
+    const refresh = () => {
+      void api<PublicSnapshot>("/api/state")
+        .then((value) => { if (alive) { setData(value); setError(""); } })
+        .catch((reason: Error) => alive && setError(reason.message));
+    };
+    refresh();
+    // SSE is the fast path; this low-frequency snapshot keeps an OBS/browser
+    // source current if a burst of chat updates causes its event stream to
+    // reconnect or fall behind.
+    const poll = window.setInterval(refresh, 5000);
     const source = new EventSource("/api/live");
     source.addEventListener("state", (event) => { setData(JSON.parse((event as MessageEvent).data) as PublicSnapshot); setConnected(true); setError(""); });
     source.onerror = () => { setConnected(false); setError("Live link reconnecting"); };
-    return () => { alive = false; source.close(); };
+    return () => { alive = false; window.clearInterval(poll); source.close(); };
   }, []);
   return { data, connected, error };
 }
