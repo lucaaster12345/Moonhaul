@@ -1,0 +1,41 @@
+{
+  "name": "moonhaul",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "dev": "concurrently -k -n ENGINE,WEB -c yellow,green \"cross-env NODE_ENV=development API_PORT=3001 tsx watch server/index.ts\" \"vite --configLoader runner --host 0.0.0.0 --port 3000\"",
+    "build": "tsc -p tsconfig.server.json --noEmit && vite build --configLoader runner",
+    "start": "tsx server/index.ts",
+    "test": "vitest run --configLoader runner",
+    "test:watch": "vitest --configLoader runner",
+    "simulate": "tsx scripts/simulate.ts",
+    "migrate": "tsx scripts/migrate.ts",
+    "stream": "bash scripts/start-stream.sh"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/static": "^8.3.0",
+    "dotenv": "^17.2.2",
+    "fastify": "^5.6.1",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tsx": "^4.20.6",
+    "ws": "^8.18.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.8",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "vitest": "^3.2.4"
+  }
+}

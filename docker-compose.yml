@@ -1,0 +1,33 @@
+services:
+  moonhaul:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  stream:
+    profiles: ["stream"]
+    build:
+      context: .
+      dockerfile: docker/stream.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      moonhaul:
+        condition: service_healthy
+    environment:
+      STREAM_URL: http://moonhaul:3000/stream
+      TWITCH_STREAM_KEY: ${TWITCH_STREAM_KEY}
+      STREAM_WIDTH: ${STREAM_WIDTH:-1280}
+      STREAM_HEIGHT: ${STREAM_HEIGHT:-720}
+      STREAM_FPS: ${STREAM_FPS:-15}
+      STREAM_BITRATE: ${STREAM_BITRATE:-1800k}
