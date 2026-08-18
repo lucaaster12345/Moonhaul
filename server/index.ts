@@ -5,7 +5,6 @@ import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import { z } from "zod";
-import { EVENTS } from "../packages/game-engine/events.js";
 import { loadEnv, type AppEnv } from "./env.js";
 import { AdminAuth } from "./auth.js";
 import { MoonhaulService } from "./service.js";
@@ -23,20 +22,15 @@ export async function buildServer(env: AppEnv = loadEnv()) {
   };
   const service = new MoonhaulService(env, log);
   const auth = new AdminAuth(env);
+  const adminGet = async (request: FastifyRequest, reply: FastifyReply) => Boolean(auth.require(request, reply));
+  const adminPost = async (request: FastifyRequest, reply: FastifyReply) => Boolean(auth.requireCsrf(request, reply));
 
   app.get("/api/health", async () => ({ ok: true, tick: service.engine.state.tick, provider: service.provider.status() }));
   app.get("/api/state", async () => service.publicState());
-  app.get("/api/events/current", async () => ({ active: service.engine.state.activeEvent, definition: service.engine.state.activeEvent ? EVENTS.find((event) => event.id === service.engine.state.activeEvent?.id) : null }));
-  app.get("/api/workers", async (request) => {
+  app.get("/api/workers", { preHandler: adminGet }, async (request) => {
     const query = z.object({ sort: z.enum(["contribution", "xp", "moonDistance", "shifts", "disasters"]).optional(), search: z.string().max(80).optional(), limit: z.coerce.number().int().min(1).max(200).optional() }).parse(request.query);
     return { workers: service.database.workers(query) };
   });
-  app.get("/api/workers/:id", async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1).max(100) }).parse(request.params);
-    const worker = service.database.getPlayer(id);
-    return worker ? { worker } : reply.code(404).send({ error: "Worker not found" });
-  });
-  app.get("/api/history", async () => ({ history: service.database.history(200), scars: service.database.scars() }));
   app.get("/api/live", async (request, reply) => {
     reply.hijack();
     reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
@@ -59,9 +53,6 @@ export async function buildServer(env: AppEnv = loadEnv()) {
     const session = auth.require(request, reply);
     return session ? { authenticated: true, username: session.username, csrf: session.csrf } : undefined;
   });
-
-  const adminGet = async (request: FastifyRequest, reply: FastifyReply) => Boolean(auth.require(request, reply));
-  const adminPost = async (request: FastifyRequest, reply: FastifyReply) => Boolean(auth.requireCsrf(request, reply));
 
   app.post("/api/admin/logout", { preHandler: adminPost }, async (request, reply) => { auth.destroy(request, reply); return { ok: true }; });
   app.get("/api/admin/summary", { preHandler: adminGet }, async () => service.adminSummary());
@@ -112,7 +103,13 @@ export async function buildServer(env: AppEnv = loadEnv()) {
 
   if (env.NODE_ENV === "production") {
     await app.register(fastifyStatic, { root: resolve("dist"), prefix: "/" });
-    app.setNotFoundHandler((request, reply) => request.url.startsWith("/api/") ? reply.code(404).send({ error: "Not found" }) : reply.sendFile("index.html"));
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith("/api/")) return reply.code(404).send({ error: "Not found" });
+      const pathname = request.url.split("?", 1)[0]?.replace(/\/+$/, "") || "/";
+      if (pathname === "/") return reply.redirect("/stream");
+      if (pathname === "/stream" || pathname === "/admin") return reply.sendFile("index.html");
+      return reply.code(404).type("text/plain").send("MOONHAUL exposes only the Twitch overlay and admin console.");
+    });
   }
   app.setErrorHandler((error, _request, reply) => {
     const normalized = error instanceof Error ? error : new Error(String(error));

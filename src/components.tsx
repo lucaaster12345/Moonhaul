@@ -6,11 +6,11 @@ export const fmt = (value: number, digits = 0) => new Intl.NumberFormat("en-US",
 export function Shell({ children, active, compact = false }: { children: ReactNode; active: string; compact?: boolean }) {
   return <main className={`site-shell ${compact ? "compact-shell" : ""}`}>
     <header className="topbar">
-      <a className="brand" href="/">MOONHAUL <small>CELESTIAL INFRASTRUCTURE DIVISION</small></a>
+      <a className="brand" href="/stream">MOONHAUL <small>CELESTIAL INFRASTRUCTURE DIVISION</small></a>
       <nav aria-label="Primary navigation">
-        {[ ["/", "CONTROL ROOM"], ["/workers", "WORKERS"], ["/history", "INCIDENTS"], ["/about", "HANDBOOK"] ].map(([href, label]) => <a className={active === href ? "active" : ""} href={href} key={href}>{label}</a>)}
+        {[["/stream", "TWITCH OVERLAY"], ["/admin", "ADMIN"]].map(([href, label]) => <a className={active === href || (href === "/admin" && active === "admin") ? "active" : ""} href={href} key={href}>{label}</a>)}
       </nav>
-      <div className="status-pill"><i /> NIGHT SHIFT LIVE</div>
+      <div className="status-pill"><i /> TWITCH GAME ONLINE</div>
     </header>
     {children}
   </main>;

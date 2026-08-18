@@ -22,7 +22,7 @@ The MVP is deliberately light: one Node.js service, one SQLite database, a React
 - Whitelisted commands, stamina, per-player cooldowns, veteran bonuses capped at 50%, duplicate-message protection, message limits, and a short-window contribution cap.
 - Four stations: Winch, Boiler, Cooling, and Signal Room.
 - Fifteen data-driven events, timed command windows, unique-player thresholds, weighted voting, prerequisites, cooldowns, failures, rewards, follow-up metadata, and catastrophic recovery.
-- Public control room, 1280×720 stream view, worker leaderboard, worker profiles, incident/scar history, and handbook.
+- A 1280×720 Twitch/OBS overlay with a paused-shift telemetry screen.
 - Authenticated admin UI with live controls, state/config/event editors, worker administration, mock chat, load bots, chaos buttons, audit history, snapshots, and protected two-stage wipe.
 - Current Twitch EventSub WebSocket input, Twitch Chat API output, and automatic incident-aware channel titles behind a provider adapter.
 - Docker deployment and an optional no-GPU stream worker using Xvfb, Chromium software rendering, FFmpeg, and `libx264`.
@@ -43,7 +43,7 @@ React UI ← SSE ← Fastify API ← GameEngine → SQLite (WAL)
 - `packages/database` — SQLite migration and transactional repository.
 - `packages/chat` — `MockChatProvider` and `TwitchChatProvider`.
 - `server` — Fastify API, authentication, SSE, ticking, backups, and service lifecycle.
-- `src` — lightweight React website and admin console.
+- `src` — lightweight React Twitch overlay and admin console.
 - `scripts` — migration, fast simulation, and CPU-only Twitch stream worker.
 
 ## Requirements
@@ -70,9 +70,10 @@ Copy-Item .env.example .env
 
 Open:
 
-- `http://localhost:3000/` — public control room
-- `http://localhost:3000/stream` — broadcast view
+- `http://localhost:3000/stream` — Twitch/OBS overlay
 - `http://localhost:3000/admin` — supervisor console
+
+The root URL redirects to `/stream`; the removed public website pages return 404.
 
 The example admin login is `admin` / `change-me`. Change `ADMIN_PASSWORD` and `SESSION_SECRET` before exposing the service.
 
@@ -120,9 +121,9 @@ The supervisor console provides:
 
 Admin sessions use a signed, HTTP-only, SameSite cookie. Production cookies are Secure. Login is rate-limited, all state-changing admin calls require a per-session CSRF token, and Twitch secrets never enter browser responses or gameplay configuration.
 
-## Stream page
+## Twitch overlay
 
-`/stream` is a fixed, readable 16:9 control-panel composition made entirely with HTML and CSS. It uses no WebGL, 3D renderer, shaders, or particle system. It is suitable as an OBS Browser Source at 1280×720.
+`/stream` is the only public presentation surface: a fixed, readable 16:9 control-panel composition made entirely with HTML and CSS. It uses no WebGL, 3D renderer, shaders, or particle system. It is suitable as an OBS Browser Source at 1280×720.
 
 To transmit from a Linux host without a GPU, set `TWITCH_STREAM_KEY` and run:
 
@@ -169,7 +170,7 @@ Tests cover ticking, Moon movement, stamina, cooldowns, event activation/voting/
 
 ## API overview
 
-Public endpoints include `/api/state`, `/api/live`, `/api/events/current`, `/api/workers`, `/api/workers/:id`, and `/api/history`. All `/api/admin/*` mutation endpoints require authentication and CSRF validation.
+The overlay uses `/api/state` and `/api/live`; `/api/health` is available for deployment checks. Worker search is admin-authenticated, and all `/api/admin/*` mutation endpoints require authentication and CSRF validation. The removed public website endpoints are no longer exposed.
 
 ## VPS deployment
 

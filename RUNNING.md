@@ -14,7 +14,7 @@ PowerShell equivalent for the copy step:
 Copy-Item .env.example .env
 ```
 
-Open `http://localhost:3000`, `/stream`, and `/admin`. Mock chat is ready immediately. Stop with `Ctrl+C`.
+Open `http://localhost:3000/stream` for the Twitch overlay and `http://localhost:3000/admin` for the supervisor console. Mock chat is ready immediately. Stop with `Ctrl+C`.
 
 ## RUN LOCALLY WITH TWITCH
 
